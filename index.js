@@ -13,7 +13,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 // --- REGLAS DEL JUEGO ---
 const INVENTORY_LIMIT = 10;
-const FARM_COOLDOWN_MS = 1 * 60 * 1; // 1 minuto
+const FARM_COOLDOWN_MS = 1 * 60 * 1000; // 1 minuto
 const STEAL_COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 hora
 const REPLACE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos para reemplazar
 
