@@ -227,7 +227,7 @@ app.post('/brainrot', async (req, res) => {
                 }
             }
 
-            case 'help': {
+            default:
                 const helpMessage = `
                 🧠 ¡Bienvenido al Juego de Brainrot hecho por Kednewt!
                 Límite de inventario: ${INVENTORY_LIMIT}. 
@@ -237,10 +237,7 @@ app.post('/brainrot', async (req, res) => {
                 [!brainrot robar @usuario] - Intenta robar un ítem (1 hora cooldown).
                 [!brainrot remplazo ID] - Si tu inventario está lleno, usa esto para cambiar el ítem nuevo por uno viejo.`;
                 return res.send(helpMessage);
-            }
 
-            default:
-                return res.send('Ese Comando no existe. Usa: farmear, robar, inventario, remplazo.');
         }
     } catch (error) {
         console.error('Error en el endpoint /brainrot:', error);
