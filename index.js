@@ -13,7 +13,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 
 // --- CONFIGURACIÓN DE LAS REGLAS DEL JUEGO ---
 const INVENTORY_LIMIT = 10;
-const FARM_COOLDOWN_MS = 1 * 60 * 1000; // 1 minuto
+const FARM_COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 minuto
 const STEAL_COOLDOWN_MS = 1 * 60 * 60 * 1000; // 1 hora
 const REPLACE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutos para reemplazar
 
@@ -37,9 +37,10 @@ async function getOrCreateUser(username) {
     .single();
 
   if (error && error.code === 'PGRST116') { // Código de Supabase para "no rows returned"
+    // LÍNEA CORREGIDA: Se eliminó la referencia a 'protected_ids'
     const { data: newUser, error: createError } = await supabase
       .from('inventories')
-      .insert({ user_name: cleanUsername, brainrot_ids: [], protected_ids: [] })
+      .insert({ user_name: cleanUsername, brainrot_ids: [] })
       .select()
       .single();
     if (createError) throw createError;
@@ -118,10 +119,12 @@ app.post('/brainrot', async (req, res) => {
                 
                 if (user.brainrot_ids.length < INVENTORY_LIMIT) {
                     const newInventory = [...user.brainrot_ids, farmedBrainrot.id];
-                    await supabase.from('inventories').update({ brainrot_ids: newInventory, last_farmed_at: new Date() }).eq('user_name', user.user_name);
+                    const { error: updateError } = await supabase.from('inventories').update({ brainrot_ids: newInventory, last_farmed_at: new Date() }).eq('user_name', user.user_name);
+                    if (updateError) { console.error('Error en update de farmear:', updateError); throw updateError; }
                     return res.send(`${username} ha farmeado: ${farmedBrainrot.name} (${farmedBrainrot.rarity})!`);
                 } else {
-                    await supabase.from('inventories').update({ temp_brainrot_id: farmedBrainrot.id, temp_brainrot_timestamp: new Date(), last_farmed_at: new Date() }).eq('user_name', user.user_name);
+                    const { error: updateError } = await supabase.from('inventories').update({ temp_brainrot_id: farmedBrainrot.id, temp_brainrot_timestamp: new Date(), last_farmed_at: new Date() }).eq('user_name', user.user_name);
+                    if (updateError) { console.error('Error en update de farmear (inventario lleno):', updateError); throw updateError; }
                     return res.send(`¡Inventario lleno! ${username} ha encontrado un ${farmedBrainrot.name} (${farmedBrainrot.rarity}). Tienes 10 minutos para usar "!brainrot remplazo {ID}" o lo perderás.`);
                 }
             }
@@ -136,7 +139,6 @@ app.post('/brainrot', async (req, res) => {
                     return res.send(message);
                 }
 
-                // Preservar el orden del inventario al mostrarlo
                 const { data: brainrotsDetails } = await supabase.from('brainrots').select('id, name, rarity').in('id', user.brainrot_ids);
                 const detailsMap = new Map(brainrotsDetails.map(b => [b.id, b]));
                 const inventoryText = user.brainrot_ids.map((id, index) => {
@@ -154,7 +156,7 @@ app.post('/brainrot', async (req, res) => {
             }
 
             case 'remplazo': {
-                const replaceIndex = parseInt(target, 10) - 1; // El usuario ve ID [1], pero en el array es el índice 0
+                const replaceIndex = parseInt(target, 10) - 1;
 
                 if (isNaN(replaceIndex) || replaceIndex < 0 || replaceIndex >= user.brainrot_ids.length) {
                     return res.send(`ID inválido. Elige un número entre 1 y ${user.brainrot_ids.length}.`);
@@ -178,7 +180,7 @@ app.post('/brainrot', async (req, res) => {
             case 'robar': {
                 if (user.last_stole_at && (Date.now() - new Date(user.last_stole_at).getTime() < STEAL_COOLDOWN_MS)) {
                     const timeLeft = new Date(user.last_stole_at).getTime() + STEAL_COOLDOWN_MS - Date.now();
-                    return res.send(`${username}, calma esas manos! Puedes volver a robar en ${formatTimeLeft(timeLeft)}.`);
+                    return res.send(`${username}, teikirisi! Puedes volver a robar en ${formatTimeLeft(timeLeft)}.`);
                 }
                 
                 let victim;
@@ -186,12 +188,11 @@ app.post('/brainrot', async (req, res) => {
                     if (target === username) return res.send(`${username} intentó robarse a sí mismo y solo consiguió perder su dignidad.`);
                     victim = await getOrCreateUser(target);
                 } else {
-                    // Elegir víctima aleatoria que tenga items y no sea el ladrón
                     const { data: potentialVictims } = await supabase
                         .from('inventories')
                         .select('user_name')
                         .not('user_name', 'eq', username)
-                        .gt('brainrot_ids', '{}'); // array no está vacío
+                        .gt('brainrot_ids', '{}');
                     
                     if (!potentialVictims || potentialVictims.length === 0) return res.send('No hay víctimas con brainrots en el servidor ahora mismo.');
                     const randomVictimName = potentialVictims[Math.floor(Math.random() * potentialVictims.length)].user_name;
@@ -202,25 +203,20 @@ app.post('/brainrot', async (req, res) => {
                     return res.send(`${victim.user_name.toUpperCase()} no tiene brainrots. ${username} intentó robarle a un pobre.`);
                 }
                 
-                // Actualizar el cooldown del ladrón sin importar el resultado
                 await supabase.from('inventories').update({ last_stole_at: new Date() }).eq('user_name', user.user_name);
 
-                // 50/50 Probabilidad de éxito
                 if (Math.random() < 0.5) {
-                    return res.send(`¡Robo fallido! ${victim.user_name} se dio cuenta y aseguró sus memes. ${username} huye con las manos vacías.`);
+                    return res.send(`¡Robo fallido! ${victim.user_name} se dio cuenta y aseguró sus memes. ${username} todo wey huye con las manos vacías.`);
                 }
 
-                // Robo exitoso
                 const stolenItemIndex = Math.floor(Math.random() * victim.brainrot_ids.length);
                 const stolenItemId = victim.brainrot_ids[stolenItemIndex];
                 
-                // Quitar item a la víctima
                 const victimNewInventory = victim.brainrot_ids.filter((_, index) => index !== stolenItemIndex);
                 await supabase.from('inventories').update({ brainrot_ids: victimNewInventory }).eq('user_name', victim.user_name);
 
                 const { data: stolenItemData } = await supabase.from('brainrots').select('name, rarity').eq('id', stolenItemId).single();
                 
-                // Dar item al ladrón (gestionando inventario lleno)
                 if (user.brainrot_ids.length < INVENTORY_LIMIT) {
                     const thiefNewInventory = [...user.brainrot_ids, stolenItemId];
                     await supabase.from('inventories').update({ brainrot_ids: thiefNewInventory }).eq('user_name', user.user_name);
@@ -231,12 +227,24 @@ app.post('/brainrot', async (req, res) => {
                 }
             }
 
+            case 'help': {
+                const helpMessage = `
+                🧠 ¡Bienvenido al Juego de Brainrot hecho por Kednewt!
+                Límite de inventario: ${INVENTORY_LIMIT}. 
+                Comandos: 
+                [!brainrot farmear] - Consigue un brainrot nuevo (1 hora cooldown).
+                [!brainrot inventario] - Muestra tus brainrots y su ID. 
+                [!brainrot robar @usuario] - Intenta robar un ítem (1 hora cooldown).
+                [!brainrot remplazo ID] - Si tu inventario está lleno, usa esto para cambiar el ítem nuevo por uno viejo.`;
+                return res.send(helpMessage);
+            }
+
             default:
-                return res.send('Acción desconocida. Usa: farmear, robar, inventario, remplazo.');
+                return res.send('Ese Comando no existe. Usa: farmear, robar, inventario, remplazo.');
         }
     } catch (error) {
         console.error('Error en el endpoint /brainrot:', error);
-        res.status(500).json({ message: 'Ocurrió un error inesperado en el servidor.', error: error.message });
+        res.status(500).json({ message: 'Ocurrió un error inesperado, Ntp la Keniu lo resolverá pronto.', error: error.message });
     }
 });
 
