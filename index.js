@@ -71,20 +71,16 @@ app.get('/inventory/:username', async (req, res) => {
 
 
 // Ruta para que un usuario farmee un brainrot
-app.post('/farm', async (req, res) => {
+app.get('/farm/:username', async (req, res) => { // CAMBIADO a GET y con :username
   try {
-    const { username } = req.body;
+    const { username } = req.params; // CAMBIADO a req.params
     if (!username) return res.status(400).send('Falta el nombre de usuario.');
-    
-    // 1. Obtener todos los brainrots
+
     const { data: allBrainrots, error: fetchError } = await supabase.from('brainrots').select('id, name, rarity');
     if (fetchError) throw fetchError;
     if (!allBrainrots || allBrainrots.length === 0) return res.send('No hay brainrots para farmear.');
 
-    // 2. Elegir uno al azar
     const farmedBrainrot = allBrainrots[Math.floor(Math.random() * allBrainrots.length)];
-
-    // 3. Añadirlo al inventario del usuario
     const user = await getOrCreateUser(username);
     const newInventoryIds = [...user.brainrot_ids, farmedBrainrot.id];
 
@@ -92,9 +88,9 @@ app.post('/farm', async (req, res) => {
       .from('inventories')
       .update({ brainrot_ids: newInventoryIds })
       .eq('user_name', user.user_name);
-    
+
     if (updateError) throw updateError;
-    
+
     res.send(`${username} ha farmeado un: ${farmedBrainrot.name} (${farmedBrainrot.rarity})!`);
 
   } catch (error) {
@@ -103,9 +99,9 @@ app.post('/farm', async (req, res) => {
 });
 
 // ########## NUEVA RUTA PARA ROBAR ##########
-app.post('/steal', async (req, res) => {
+app.get('/steal/:thief/:victim', async (req, res) => { // CAMBIADO a GET
     try {
-        const { thief, victim } = req.body;
+        const { thief, victim } = req.params; // CAMBIADO a req.params
         if (!thief || !victim) {
             return res.status(400).send('Faltan el ladrón (thief) o la víctima (victim).');
         }
@@ -113,46 +109,25 @@ app.post('/steal', async (req, res) => {
             return res.send(`${thief} intentó robarse a sí mismo y solo consiguió perder su dignidad.`);
         }
 
-        // 1. Obtener datos de ambos usuarios
         const thiefUser = await getOrCreateUser(thief);
         const victimUser = await getOrCreateUser(victim);
-        
-        // 2. Comprobar si la víctima tiene algo que robar
+
         if (!victimUser.brainrot_ids || victimUser.brainrot_ids.length === 0) {
             return res.send(`${victim.toUpperCase()} no tiene brainrots. ${thief} intentó robarle a un pobre.`);
         }
 
-        // 3. Simular la probabilidad de éxito del robo (ej. 50%)
-        if (Math.random() < 0.5) { // 50% de probabilidad de fallar
+        if (Math.random() < 0.5) { 
             return res.send(`¡Robo fallido! ${victim} se dio cuenta y aseguró sus memes. ${thief} huye con las manos vacías.`);
         }
 
-        // 4. Si el robo es exitoso, elegir un item al azar del inventario de la víctima
         const stolenItemIndex = Math.floor(Math.random() * victimUser.brainrot_ids.length);
         const stolenItemId = victimUser.brainrot_ids[stolenItemIndex];
-
-        // 5. Actualizar los inventarios
-        // Quitar el item de la víctima
         const victimNewInventory = victimUser.brainrot_ids.filter((_, index) => index !== stolenItemIndex);
-        // Añadir el item al ladrón
         const thiefNewInventory = [...thiefUser.brainrot_ids, stolenItemId];
 
-        // 6. Subir los cambios a la base de datos
-        const { error: victimUpdateError } = await supabase
-            .from('inventories')
-            .update({ brainrot_ids: victimNewInventory })
-            .eq('user_name', victimUser.user_name);
+        await supabase.from('inventories').update({ brainrot_ids: victimNewInventory }).eq('user_name', victimUser.user_name);
+        await supabase.from('inventories').update({ brainrot_ids: thiefNewInventory }).eq('user_name', thiefUser.user_name);
 
-        const { error: thiefUpdateError } = await supabase
-            .from('inventories')
-            .update({ brainrot_ids: thiefNewInventory })
-            .eq('user_name', thiefUser.user_name);
-
-        if (victimUpdateError || thiefUpdateError) {
-            throw new Error('Error al actualizar los inventarios en la base de datos.');
-        }
-        
-        // 7. Obtener el nombre del item robado para el mensaje final
         const { data: stolenItemData } = await supabase.from('brainrots').select('name').eq('id', stolenItemId).single();
 
         res.send(`¡ROBO EXITOSO! ${thief} le ha robado un [${stolenItemData.name}] a ${victim}!`);
