@@ -60,14 +60,14 @@ async function getWeightedRandomBrainrot() {
 }
 
 // --- ENDPOINT PRINCIPAL DE LA API ---
-app.post('/brainrot', async (req, res) => {
+const brainrotHandler = async (req, res) => {
     try {
-        const { username, args } = req.body;
-        if (!username || !args || !args.length) return res.status(400).send('Petición mal formada.');
+        const { username, action: rawAction } = req.params;
+        const target = req.params.target ? req.params.target.replace('@', '').toLowerCase() : null;
+        const action = rawAction.toLowerCase();
 
-        const action = args[0].toLowerCase();
-        const target = args[1] ? args[1].replace('@', '').toLowerCase() : null;
-        
+        if (!username || !action) return res.status(400).send('Petición mal formada.');
+
         await supabase.from('inventories').delete().eq('user_name', username).eq('is_temporary_for_replacement', true).lt('temp_timestamp', new Date(Date.now() - REPLACE_TIMEOUT_MS).toISOString());
 
         switch (action) {
@@ -202,7 +202,13 @@ app.post('/brainrot', async (req, res) => {
         console.error('Error en el endpoint /brainrot:', error);
         res.status(500).json({ message: 'Algo falló, pero no te preocupes que la Kednewt resuelve.', error: error.message });
     }
-});
+};
+
+// --- DEFINICIÓN DE RUTAS ---
+// Ruta para comandos CON objetivo (ej. robar, descartar)
+app.get('/brainrot/:username/:action/:target', brainrotHandler);
+// Ruta para comandos SIN objetivo (ej. farmear, inventario)
+app.get('/brainrot/:username/:action', brainrotHandler);
 
 // Iniciar el servidor
 app.listen(port, () => {
